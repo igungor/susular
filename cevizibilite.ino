@@ -1,3 +1,5 @@
+#include "LowPower.h"
+
 const int MOTOR_ENA = 6;
 const int MOTOR_IN1 = 7;
 const int MOTOR_IN2 = 8;
@@ -7,6 +9,8 @@ const int ENCODER_PERIOD = 16;
 // Approximate bounce duration of IR sensor.
 // Ignore noisy readings during this time period.
 const int BOUNCE_DURATION = 50; // milliseconds
+
+const int MOTOR_PWM = 255;
 
 volatile int encoderPulse;
 
@@ -18,13 +22,13 @@ void setup() {
 
   encoderPulse = 0;
   stopMotor();
-  analogWrite(MOTOR_ENA, 72);
+  analogWrite(MOTOR_ENA, MOTOR_PWM);
   Serial.begin(9600);
 }
 
 void loop() {
   turnMotorLeft(1.5);
-  delay(1000);
+  delay(3000);
 
   stopMotor();
   delay(1000);
@@ -34,6 +38,8 @@ void loop() {
 
   stopMotor();
   delay(3000);
+
+  LowPower.powerDown(SLEEP_8S, ADC_OFF, BOD_OFF);
 }
 
 void attachEncoderInterrupt() {
@@ -80,9 +86,6 @@ void turnMotorRight(float turns) {
 }
 
 void waitForTurn(float turns) {
-  for (;;) {
-    if (float(encoderPulse) / ENCODER_PERIOD >= turns) {
-      return;
-    }
-  }
+  while(float(encoderPulse) / ENCODER_PERIOD < turns) {
+  };
 }
