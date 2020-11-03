@@ -98,7 +98,7 @@ void loop() {
   turnMotorLeft(1.5);
   stopMotor();
 
-  // keep the valve open and let the plants watered
+  // keep the valve open and let the plants get some water
   powerDownFor(4 * 60 * 60);
   
   // close the valve
