@@ -117,6 +117,11 @@ void powerDownFor(int seconds) {
   for (int i = 0; i < times; i++) {
     LowPower.powerDown(SLEEP_8S, ADC_OFF, BOD_OFF);
   }
+
+  int remainder = seconds % 8;
+  for (int i = 0; i < remainder; i++) {
+    LowPower.powerDown(SLEEP_1S, ADC_OFF, BOD_OFF);
+  }
 }
 
 bool isTimeToWater() {
