@@ -76,7 +76,7 @@ void setup() {
   Serial.begin(9600);
 
   if (!rtc.begin()) {
-    Serial.println("couldn't find RTC");
+    Serial.println(F("couldn't find RTC"));
     Serial.flush();
     abort();
   }
@@ -92,7 +92,7 @@ void loop() {
     return;
   }
 
-  Serial.println("watering...");
+  Serial.println(F("watering..."));
 
   // open the valve
   turnMotorLeft(1.5);
@@ -123,13 +123,13 @@ bool isTimeToWater() {
   printTime();
   DateTime now = rtc.now();
 
-  Serial.println("iterating over watering days...");
+  Serial.println(F("iterating over watering days..."));
   for (int i = 0; i < dayCount; i++ ) {
     DateTime timeStart = timeToWater[i];
     DateTime timeEnd = timeStart + dateBuffer;
 
     if ((now >= timeStart) && (now <= timeEnd)) {
-      Serial.print("watering time found: ");
+      Serial.print(F("watering time found: "));
       Serial.println(dateTimeToString(timeStart));
       return true;
     }
@@ -165,9 +165,9 @@ void printTime() {
   Serial.print(':');
   Serial.print(now.second(), DEC);
 
-  Serial.print(" | Temperature: ");
+  Serial.print(F(" | Temperature: "));
   Serial.print(rtc.getTemperature());
-  Serial.println(" C");
+  Serial.println(F(" C"));
 }
 
 void stopMotor() {
