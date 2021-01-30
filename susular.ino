@@ -19,20 +19,31 @@
     A5  - I2C SCL (RTC)
 */
 
+#include <SPI.h>
 #include "LowPower.h"
 #include "RTClib.h"
+#include "SdFat.h"
 
+// Pins
 const int ENCODER = 2;
 const int MOTOR_IN1 = 4;
 const int MOTOR_IN2 = 5;
 const int LED = 8;
 const int POWER = 9;
+const int SD_CHIPSELECT = 10;
 
+// Constants
 const int ENCODER_PERIOD = 16;
+const char * fileName = "KAYIT.TXT";
+
+// Valve Status
+const byte VALVE_IDLE = 0;
+const byte VALVE_OPENING = 1;
+const byte VALVE_OPEN = 2;
+const byte VALVE_CLOSING = 3;
+const byte VALVE_CLOSED = 4;
 
 RTC_DS3231 RTC;
-
-String daysOfTheWeek[7] = {"Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"};
 
 /*
   const int dayCount = 41;
@@ -80,31 +91,72 @@ String daysOfTheWeek[7] = {"Sunday", "Monday", "Tuesday", "Wednesday", "Thursday
   DateTime(2021, 9, 12, 20, 0, 0),
   };
 */
-const int dayCount = 19;
+const int dayCount = 60;
 DateTime timeToWater[dayCount] = {
-  DateTime(2021, 1, 30, 9, 28, 0),
-  DateTime(2021, 1, 30, 9, 29, 0),
-  DateTime(2021, 1, 30, 9, 30, 0),
-  DateTime(2021, 1, 30, 9, 31, 0),
-  DateTime(2021, 1, 30, 9, 32, 0),
-  DateTime(2021, 1, 30, 9, 33, 0),
-  DateTime(2021, 1, 30, 9, 34, 0),
-  DateTime(2021, 1, 30, 9, 35, 0),
-  DateTime(2021, 1, 30, 9, 36, 0),
-  DateTime(2021, 1, 30, 9, 37, 0),
-  DateTime(2021, 1, 30, 9, 38, 0),
-  DateTime(2021, 1, 30, 9, 39, 0),
-  DateTime(2021, 1, 30, 9, 40, 0),
-  DateTime(2021, 1, 30, 9, 41, 0),
-  DateTime(2021, 1, 30, 9, 42, 0),
-  DateTime(2021, 1, 30, 9, 43, 0),
-  DateTime(2021, 1, 30, 9, 44, 0),
-  DateTime(2021, 1, 30, 9, 45, 0),
-  DateTime(2021, 1, 30, 9, 46, 0),
+  DateTime(2021, 1, 30, 22, 0, 0),
+  DateTime(2021, 1, 30, 22, 1, 0),
+  DateTime(2021, 1, 30, 22, 2, 0),
+  DateTime(2021, 1, 30, 22, 3, 0),
+  DateTime(2021, 1, 30, 22, 4, 0),
+  DateTime(2021, 1, 30, 22, 5, 0),
+  DateTime(2021, 1, 30, 22, 6, 0),
+  DateTime(2021, 1, 30, 22, 7, 0),
+  DateTime(2021, 1, 30, 22, 8, 0),
+  DateTime(2021, 1, 30, 22, 9, 0),
+  DateTime(2021, 1, 30, 22, 10, 0),
+  DateTime(2021, 1, 30, 22, 11, 0),
+  DateTime(2021, 1, 30, 22, 12, 0),
+  DateTime(2021, 1, 30, 22, 13, 0),
+  DateTime(2021, 1, 30, 22, 14, 0),
+  DateTime(2021, 1, 30, 22, 15, 0),
+  DateTime(2021, 1, 30, 22, 16, 0),
+  DateTime(2021, 1, 30, 22, 17, 0),
+  DateTime(2021, 1, 30, 22, 18, 0),
+  DateTime(2021, 1, 30, 22, 19, 0),
+  DateTime(2021, 1, 30, 22, 20, 0),
+  DateTime(2021, 1, 30, 22, 21, 0),
+  DateTime(2021, 1, 30, 22, 22, 0),
+  DateTime(2021, 1, 30, 22, 23, 0),
+  DateTime(2021, 1, 30, 22, 24, 0),
+  DateTime(2021, 1, 30, 22, 25, 0),
+  DateTime(2021, 1, 30, 22, 26, 0),
+  DateTime(2021, 1, 30, 22, 27, 0),
+  DateTime(2021, 1, 30, 22, 28, 0),
+  DateTime(2021, 1, 30, 22, 29, 0),
+  DateTime(2021, 1, 30, 22, 30, 0),
+  DateTime(2021, 1, 30, 22, 31, 0),
+  DateTime(2021, 1, 30, 22, 32, 0),
+  DateTime(2021, 1, 30, 22, 33, 0),
+  DateTime(2021, 1, 30, 22, 34, 0),
+  DateTime(2021, 1, 30, 22, 35, 0),
+  DateTime(2021, 1, 30, 22, 36, 0),
+  DateTime(2021, 1, 30, 22, 37, 0),
+  DateTime(2021, 1, 30, 22, 38, 0),
+  DateTime(2021, 1, 30, 22, 39, 0),
+  DateTime(2021, 1, 30, 22, 40, 0),
+  DateTime(2021, 1, 30, 22, 41, 0),
+  DateTime(2021, 1, 30, 22, 42, 0),
+  DateTime(2021, 1, 30, 22, 43, 0),
+  DateTime(2021, 1, 30, 22, 44, 0),
+  DateTime(2021, 1, 30, 22, 45, 0),
+  DateTime(2021, 1, 30, 22, 46, 0),
+  DateTime(2021, 1, 30, 22, 47, 0),
+  DateTime(2021, 1, 30, 22, 48, 0),
+  DateTime(2021, 1, 30, 22, 49, 0),
+  DateTime(2021, 1, 30, 22, 50, 0),
+  DateTime(2021, 1, 30, 22, 51, 0),
+  DateTime(2021, 1, 30, 22, 52, 0),
+  DateTime(2021, 1, 30, 22, 53, 0),
+  DateTime(2021, 1, 30, 22, 54, 0),
+  DateTime(2021, 1, 30, 22, 55, 0),
+  DateTime(2021, 1, 30, 22, 56, 0),
+  DateTime(2021, 1, 30, 22, 57, 0),
+  DateTime(2021, 1, 30, 22, 58, 0),
+  DateTime(2021, 1, 30, 22, 59, 0),
 };
 
 // 1 hour buffer for date comparison
-//TimeSpan dateBuffer(0, 1, 0, 0);
+//TimeSpan dateBuffer(0, 1, 0, 0); // TODO
 TimeSpan dateBuffer(0, 0, 0, 10);
 
 void setup() {
@@ -117,14 +169,15 @@ void setup() {
   Serial.begin(115200);
 
   stopMotor();
-  powerOnPeripherals();
-  enableRTC();
 
-  // adjust RTC time for current time
-  // rtc.adjust(DateTime(F(__DATE__), F(__TIME__)));
-
-  disableRTC();
-  powerOffPeripherals();
+  // NOTE: enable to adjust RTC time for current time
+  if (false) {
+    powerOnPeripherals();
+    enableRTC();
+    RTC.adjust(DateTime(F(__DATE__), F(__TIME__)));
+    disableRTC();
+    powerOffPeripherals();
+  }
 }
 
 void loop() {
@@ -132,8 +185,10 @@ void loop() {
   if (!isTimeToWater()) {
     Serial.println(F("not my time, sleeping an hour"));
     Serial.flush(); // wait for the tranmission to end before going sleep
+    record(VALVE_IDLE, 0, 0);
+
     // sleep for an hour until next check
-    // powerDownFor(1 * 60 * 60);
+    // sleepFor(1 * 60 * 60);
     sleepFor(1);
     return;
   }
@@ -141,8 +196,10 @@ void loop() {
   Serial.println(F("watering time! opening the valve..."));
 
   // open the valve
+  record(VALVE_OPENING, 0, 0);
   turnMotorLeft(1.5);
   stopMotor();
+  record(VALVE_OPEN, 0, 0);
 
   // keep the valve open and let the plants get some water
   Serial.println(F("valve open. sleeping 4 hours..."));
@@ -152,13 +209,15 @@ void loop() {
 
   // close the valve
   Serial.println(F("slept 4 hours. closing the valve..."));
+  record(VALVE_CLOSING, 0, 0);
   turnMotorRight(1.5);
   stopMotor();
+  record(VALVE_CLOSED, 0, 0);
 
-  // save battery
   Serial.println(F("watering done! sleeping half a day..."));
   Serial.flush(); // wait for the tranmission to end before going sleep
 
+  // save battery
   // powerDownFor(12 * 60 * 60UL);
   sleepFor(2);
 }
@@ -218,7 +277,7 @@ void flashLED (const byte times) {
     digitalWrite (LED, HIGH);
     delay (20);
     digitalWrite (LED, LOW);
-    delay (300);
+    delay (150);
   }
 }
 
@@ -265,15 +324,67 @@ void printTime(DateTime now) {
   Serial.print(now.month(), DEC);
   Serial.print('/');
   Serial.print(now.day(), DEC);
-  Serial.print(" (");
-  Serial.print(daysOfTheWeek[now.dayOfTheWeek()]);
-  Serial.print(") ");
+  Serial.print(" ");
   Serial.print(now.hour(), DEC);
   Serial.print(':');
   Serial.print(now.minute(), DEC);
   Serial.print(':');
   Serial.print(now.second(), DEC);
   Serial.println();
+}
+
+void record(unsigned int valveStatus,
+            int temperature,
+            float humidity) {
+
+  powerOnPeripherals();
+
+  SdFat sd;
+
+  flashLED(5);
+
+  if (!sd.begin(SD_CHIPSELECT, SPI_HALF_SPEED)) {
+    Serial.println(F("sd: failed to initialize"));
+    Serial.flush();
+    return;
+  }
+
+  SdFile file;
+  SPI.begin();
+
+  if (!file.open(fileName, O_CREAT | O_WRITE | O_APPEND)) {
+    Serial.println(F("sd: failed to open file"));
+    Serial.flush();
+    return;
+  }
+  enableRTC();
+  DateTime now = RTC.now();
+  disableRTC();
+
+  /*
+     Datetime | ValveStatus | Temperature | Humidity
+     Ideas:
+       - System battery status
+       - RTC battery status
+       - Manual trigger status
+  */
+  char buf[30];
+  sprintf(buf, "%04d-%02d-%02d %02d:%02d:%02d",
+          (int) now.year(), (int) now.month(), (int) now.day(),
+          (int) now.hour(), (int) now.minute(), (int) now.second());
+
+  file.print(buf);
+  file.print("\t");
+  file.print(valveStatus);
+  file.println();
+
+  file.sync();
+  file.close();
+  delay(100);
+  SPI.end();
+  powerOffPeripherals();
+
+  flashLED(2);
 }
 
 void stopMotor() {
@@ -297,7 +408,7 @@ void waitForTurn(float turns) {
   // TODO
   delay(1000);
   return;
-  
+
   int encoderPulse = 0;
   // assume last reading was off
   bool lastState = 1;
