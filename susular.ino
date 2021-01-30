@@ -1,24 +1,42 @@
 /*
    Vana 01.
+
+   Pinler:
+    D2 - IR cikisi (enkoder sensoru)
+
+    D4 - Motor surucu girdi (M_IN1)
+    D5 - Motor surucu girdi (M_IN2)
+
+    D8 - mesgul indikator LEDi
+    D9 - cevre birimleri guc kapisi (MOSFET gate, 0 aktif)
+
+    D10 - SD kart SS (slave select)
+    D11 - SD kart MOSI
+    D12 - SD kart MISO
+    D13 - SD kart SCK
+
+    A4  - I2C SDA (RTC)
+    A5  - I2C SCL (RTC)
 */
 
 #include "LowPower.h"
 #include "RTClib.h"
 
-const int MOTOR_ENA = 6;
-const int MOTOR_IN1 = 8;
-const int MOTOR_IN2 = 9;
-const int ENCODER_PIN = 2;
+const int ENCODER = 2;
+const int MOTOR_IN1 = 4;
+const int MOTOR_IN2 = 5;
+const int LED = 8;
+const int POWER = 9;
 
 const int ENCODER_PERIOD = 16;
-const int MOTOR_PWM = 255;
 
-RTC_DS3231 rtc;
+RTC_DS3231 RTC;
 
 String daysOfTheWeek[7] = {"Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"};
 
-const int dayCount = 41;
-DateTime timeToWater[dayCount] = {
+/*
+  const int dayCount = 41;
+  DateTime timeToWater[dayCount] = {
   DateTime(2021, 5, 15, 20, 0, 0),
   DateTime(2021, 5, 18, 20, 0, 0),
   DateTime(2021, 5, 21, 20, 0, 0),
@@ -60,57 +78,93 @@ DateTime timeToWater[dayCount] = {
   DateTime(2021, 9,  6, 20, 0, 0),
   DateTime(2021, 9,  9, 20, 0, 0),
   DateTime(2021, 9, 12, 20, 0, 0),
+  };
+*/
+const int dayCount = 19;
+DateTime timeToWater[dayCount] = {
+  DateTime(2021, 1, 30, 9, 28, 0),
+  DateTime(2021, 1, 30, 9, 29, 0),
+  DateTime(2021, 1, 30, 9, 30, 0),
+  DateTime(2021, 1, 30, 9, 31, 0),
+  DateTime(2021, 1, 30, 9, 32, 0),
+  DateTime(2021, 1, 30, 9, 33, 0),
+  DateTime(2021, 1, 30, 9, 34, 0),
+  DateTime(2021, 1, 30, 9, 35, 0),
+  DateTime(2021, 1, 30, 9, 36, 0),
+  DateTime(2021, 1, 30, 9, 37, 0),
+  DateTime(2021, 1, 30, 9, 38, 0),
+  DateTime(2021, 1, 30, 9, 39, 0),
+  DateTime(2021, 1, 30, 9, 40, 0),
+  DateTime(2021, 1, 30, 9, 41, 0),
+  DateTime(2021, 1, 30, 9, 42, 0),
+  DateTime(2021, 1, 30, 9, 43, 0),
+  DateTime(2021, 1, 30, 9, 44, 0),
+  DateTime(2021, 1, 30, 9, 45, 0),
+  DateTime(2021, 1, 30, 9, 46, 0),
 };
 
 // 1 hour buffer for date comparison
-TimeSpan dateBuffer(0, 1, 0, 0);
+//TimeSpan dateBuffer(0, 1, 0, 0);
+TimeSpan dateBuffer(0, 0, 0, 10);
 
 void setup() {
-  pinMode(MOTOR_ENA, OUTPUT);
+  pinMode(ENCODER, INPUT);
   pinMode(MOTOR_IN1, OUTPUT);
   pinMode(MOTOR_IN2, OUTPUT);
-  pinMode(ENCODER_PIN, INPUT);
+  pinMode(LED, OUTPUT);
+  pinMode(POWER, OUTPUT);
+
+  Serial.begin(115200);
 
   stopMotor();
-  analogWrite(MOTOR_ENA, MOTOR_PWM);
-  Serial.begin(9600);
-
-  if (!rtc.begin()) {
-    Serial.println(F("couldn't find RTC"));
-    Serial.flush();
-    abort();
-  }
+  powerOnPeripherals();
+  enableRTC();
 
   // adjust RTC time for current time
   // rtc.adjust(DateTime(F(__DATE__), F(__TIME__)));
+
+  disableRTC();
+  powerOffPeripherals();
 }
 
 void loop() {
+  Serial.println(F("here we go! checking the date..."));
   if (!isTimeToWater()) {
+    Serial.println(F("not my time, sleeping an hour"));
+    Serial.flush(); // wait for the tranmission to end before going sleep
     // sleep for an hour until next check
-    powerDownFor(1 * 60 * 60);
+    // powerDownFor(1 * 60 * 60);
+    sleepFor(1);
     return;
   }
 
-  Serial.println(F("watering..."));
+  Serial.println(F("watering time! opening the valve..."));
 
   // open the valve
   turnMotorLeft(1.5);
   stopMotor();
 
   // keep the valve open and let the plants get some water
-  powerDownFor(4 * 60 * 60);
-  
+  Serial.println(F("valve open. sleeping 4 hours..."));
+  Serial.flush();
+  // powerDownFor(4 * 60 * 60);
+  sleepFor(2);
+
   // close the valve
+  Serial.println(F("slept 4 hours. closing the valve..."));
   turnMotorRight(1.5);
   stopMotor();
-  
+
   // save battery
-  powerDownFor(12 * 60 * 60);
+  Serial.println(F("watering done! sleeping half a day..."));
+  Serial.flush(); // wait for the tranmission to end before going sleep
+
+  // powerDownFor(12 * 60 * 60UL);
+  sleepFor(2);
 }
 
 // shutdown all units for given seconds.
-void powerDownFor(int seconds) {
+void sleepFor(unsigned long seconds) {
   // find the iteration count to sleep for SLEEP_8S
   int times = seconds / 8;
 
@@ -124,9 +178,61 @@ void powerDownFor(int seconds) {
   }
 }
 
+void powerOnPeripherals() {
+  pinMode(POWER, OUTPUT);
+  digitalWrite(POWER, LOW); // p-channel mosfet. low -> active.
+}
+
+void powerOffPeripherals() {
+  // put all digital pins into low stats
+  for (byte pin = 0; pin < 14; pin++) {
+    pinMode (pin, OUTPUT);
+    digitalWrite (pin, LOW);
+  }
+
+  digitalWrite (POWER, HIGH);
+}
+
+void enableRTC () {
+  if (!RTC.begin()) {
+    Serial.println(F("rtc: not initialized"));
+    return;
+  }
+
+  delay (2);
+  TWBR = 72;  // 50 kHz at 8 MHz clock
+}
+
+void disableRTC () {
+  // turn off i2c
+  TWCR &= ~(bit(TWEN) | bit(TWIE) | bit(TWEA));
+
+  // turn off i2c pull-ups
+  digitalWrite (A4, LOW);
+  digitalWrite (A5, LOW);
+}
+
+void flashLED (const byte times) {
+  for (int i = 0; i < times; i++)
+  {
+    digitalWrite (LED, HIGH);
+    delay (20);
+    digitalWrite (LED, LOW);
+    delay (300);
+  }
+}
+
 bool isTimeToWater() {
-  printTime();
-  DateTime now = rtc.now();
+  powerOnPeripherals();
+  delay(10); // wait a few ms for rtc
+  enableRTC();
+
+  flashLED(3);
+  DateTime now = RTC.now();
+  disableRTC();
+  powerOffPeripherals();
+
+  printTime(now);
 
   Serial.println(F("iterating over watering days..."));
   for (int i = 0; i < dayCount; i++ ) {
@@ -153,9 +259,7 @@ String dateTimeToString(DateTime &dt) {
   return String(buffer);
 }
 
-void printTime() {
-  DateTime now = rtc.now();
-
+void printTime(DateTime now) {
   Serial.print(now.year(), DEC);
   Serial.print('/');
   Serial.print(now.month(), DEC);
@@ -169,10 +273,7 @@ void printTime() {
   Serial.print(now.minute(), DEC);
   Serial.print(':');
   Serial.print(now.second(), DEC);
-
-  Serial.print(F(" | Temperature: "));
-  Serial.print(rtc.getTemperature());
-  Serial.println(F(" C"));
+  Serial.println();
 }
 
 void stopMotor() {
@@ -193,12 +294,16 @@ void turnMotorRight(float turns) {
 }
 
 void waitForTurn(float turns) {
+  // TODO
+  delay(1000);
+  return;
+  
   int encoderPulse = 0;
   // assume last reading was off
   bool lastState = 1;
 
   do {
-    bool state = digitalRead(ENCODER_PIN);
+    bool state = digitalRead(ENCODER);
 
     if (state != lastState) {
       lastState = state;
