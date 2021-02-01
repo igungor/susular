@@ -3,25 +3,21 @@
 
    Pinler:
     D2 - IR cikisi (enkoder sensoru)
-
     D4 - Motor surucu girisi (M_IN1)
     D5 - Motor surucu girisi (M_IN2)
-
     D8 - indikator LED
     D9 - cevre birimleri guc kapisi (MOSFET gate, 0 aktif)
-
     D10 - SD kart SS (slave select)
     D11 - SD kart MOSI
     D12 - SD kart MISO
     D13 - SD kart SCK
-
     A4  - I2C SDA (RTC)
     A5  - I2C SCL (RTC)
 
    Hata Indikatoru:
-    err1: sd-kart hatasi. LED 2 kisa flash.
-    err2: rtc hatasi. LED 3 kisa flash.
-    err3: dht hatasi. LED 4 kisa flash.
+    sd-kart hatasi: LED 2 kisa flash.
+    rtc hatasi:     LED 3 kisa flash.
+    dht hatasi:     LED 4 kisa flash.
 */
 
 #include <SPI.h>
@@ -29,6 +25,11 @@
 #include <RTClib.h>
 #include <SdFat.h>
 #include <DHT.h>
+
+#define ErrSuccess 0
+#define ErrSDCard 1
+#define ErrRTC 2
+#define ErrDHT 3
 
 // Pins
 const int ENCODER = 2;
@@ -301,17 +302,17 @@ void enableRTC () {
   if (!RTC.begin()) {
     Serial.println(F("rtc: not initialized"));
     Serial.flush();
-    flashLED(3);
+    flashLED(3, ErrRTC);
     return;
   }
 
   delay (2);
   TWBR = 72;  // 50 kHz at 8 MHz clock
 
-  if (!RTC.lostPower()) {
+  if (RTC.lostPower()) {
     Serial.println(F("rtc: battery is empty"));
     Serial.flush();
-    flashLED(3);
+    flashLED(3, ErrRTC);
     return;
   }
 }
@@ -365,7 +366,7 @@ void getTemperature() {
   if (isnan(humidity) || isnan(temperature)) {
     Serial.println(F("dht: failed to read from sensor!"));
     disableDHT();
-    flashLED(4); // todo: blink fast to indicate an error
+    flashLED(4, ErrDHT);
     return;
   }
   disableDHT();
@@ -378,13 +379,36 @@ void printTemperature() {
   Serial.println(humidity);
 }
 
-void flashLED (const byte times) {
-  for (int i = 0; i < times; i++)
-  {
-    digitalWrite (LED, HIGH);
-    delay (20);
-    digitalWrite (LED, LOW);
-    delay (150);
+void flashLED (byte times, byte err) {
+  unsigned int firstDelay = err == 0 ? 20 : 100;
+  unsigned int secondDelay = err == 0 ? 150 : 100;
+  bool isForever = err > 0 ? true : false;
+  times = err == 0 ? times : err + 1;
+
+  switch (err) {
+    case ErrSDCard:
+      times = 2;
+      break;
+    case ErrRTC:
+      times = 3;
+      break;
+    case ErrDHT:
+      times = 4;
+      break;
+  }
+
+  for (;;) {
+    for (int i = 0; i < times; i++) {
+      digitalWrite (LED, HIGH);
+      delay (firstDelay);
+      digitalWrite (LED, LOW);
+      delay (secondDelay);
+    }
+
+    if (!isForever) {
+      break;
+    }
+    delay(2000);
   }
 }
 
@@ -413,12 +437,12 @@ void record(unsigned int valveStatus) {
 
   SdFat sd;
 
-  flashLED(5);
+  flashLED(5, ErrSuccess);
 
   if (!sd.begin(SD_CHIPSELECT, SPI_HALF_SPEED)) {
     Serial.println(F("sd: failed to initialize"));
     Serial.flush();
-    flashLED(10);
+    flashLED(2, ErrSDCard);
     return;
   }
 
@@ -428,7 +452,7 @@ void record(unsigned int valveStatus) {
   if (!file.open(logfile, O_CREAT | O_WRITE | O_APPEND)) {
     Serial.println(F("sd: failed to open file"));
     Serial.flush();
-    flashLED(5);
+    flashLED(2, ErrSDCard);
     return;
   }
   getTime();
@@ -454,7 +478,7 @@ void record(unsigned int valveStatus) {
   SPI.end();
   powerOffPeripherals();
 
-  flashLED(2);
+  flashLED(2, ErrSuccess);
 }
 
 void stopMotor() {
