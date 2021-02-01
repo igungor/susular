@@ -4,10 +4,10 @@
    Pinler:
     D2 - IR cikisi (enkoder sensoru)
 
-    D4 - Motor surucu girdi (M_IN1)
-    D5 - Motor surucu girdi (M_IN2)
+    D4 - Motor surucu girisi (M_IN1)
+    D5 - Motor surucu girisi (M_IN2)
 
-    D8 - mesgul indikator LEDi
+    D8 - indikator LED
     D9 - cevre birimleri guc kapisi (MOSFET gate, 0 aktif)
 
     D10 - SD kart SS (slave select)
@@ -17,6 +17,11 @@
 
     A4  - I2C SDA (RTC)
     A5  - I2C SCL (RTC)
+
+   Hata Indikatoru:
+    err1: sd-kart hatasi. LED 2 kisa flash.
+    err2: rtc hatasi. LED 3 kisa flash.
+    err3: dht hatasi. LED 4 kisa flash.
 */
 
 #include <SPI.h>
@@ -226,9 +231,8 @@ void loop() {
 
   record(VALVE_CLOSED);
   Serial.println(F("vana kapandi. uyku vakti..."));
-  Serial.flush(); // wait for the tranmission to end before going sleep
+  Serial.flush();
 
-  // save battery
   sleepFor(WAKEUP_EVERY);
 }
 
@@ -296,11 +300,20 @@ void powerOffPeripherals() {
 void enableRTC () {
   if (!RTC.begin()) {
     Serial.println(F("rtc: not initialized"));
+    Serial.flush();
+    flashLED(3);
     return;
   }
 
   delay (2);
   TWBR = 72;  // 50 kHz at 8 MHz clock
+
+  if (!RTC.lostPower()) {
+    Serial.println(F("rtc: battery is empty"));
+    Serial.flush();
+    flashLED(3);
+    return;
+  }
 }
 
 void disableRTC () {
@@ -352,6 +365,7 @@ void getTemperature() {
   if (isnan(humidity) || isnan(temperature)) {
     Serial.println(F("dht: failed to read from sensor!"));
     disableDHT();
+    flashLED(4); // todo: blink fast to indicate an error
     return;
   }
   disableDHT();
@@ -404,6 +418,7 @@ void record(unsigned int valveStatus) {
   if (!sd.begin(SD_CHIPSELECT, SPI_HALF_SPEED)) {
     Serial.println(F("sd: failed to initialize"));
     Serial.flush();
+    flashLED(10);
     return;
   }
 
@@ -413,18 +428,12 @@ void record(unsigned int valveStatus) {
   if (!file.open(logfile, O_CREAT | O_WRITE | O_APPEND)) {
     Serial.println(F("sd: failed to open file"));
     Serial.flush();
+    flashLED(5);
     return;
   }
   getTime();
   getTemperature();
 
-  /*
-     Datetime | ValveStatus | Temperature | Humidity
-     Ideas:
-       - System battery status
-       - RTC battery status
-       - Manual trigger status
-  */
   char buf[30];
   sprintf(buf, "%04d-%02d-%02d %02d:%02d:%02d",
           (int) now.year(), (int) now.month(), (int) now.day(),
