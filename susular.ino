@@ -93,6 +93,8 @@ void setup() {
   printSummary();
 
   powerOffPeripherals();
+
+  SdFile::dateTimeCallback(fileDateTime);
 }
 
 void loop() {
@@ -341,6 +343,10 @@ String dateTimeToString(DateTime &dt) {
   return String(buffer);
 }
 
+void fileDateTime(uint16_t* date, uint16_t* time)  {
+  *date = FAT_DATE(now.year(), now.month(), now.day());
+  *time = FAT_TIME(now.hour(), now.minute(), now.second());
+}
 
 void enableDHT() {
   dht.begin();
@@ -373,7 +379,7 @@ void printTemperature() {
   Serial.println(humidity);
 }
 
-void flashLED (byte times, byte err) {
+void flashLED(byte times, byte err) {
   uint8_t firstDelay = err == 0 ? 20 : 150;
   uint8_t secondDelay = err == 0 ? 150 : 150;
   bool isForever = err > 0 ? true : false;
@@ -381,10 +387,10 @@ void flashLED (byte times, byte err) {
 
   for (;;) {
     for (int i = 0; i < times; i++) {
-      digitalWrite (LED, HIGH);
-      delay (firstDelay);
-      digitalWrite (LED, LOW);
-      delay (secondDelay);
+      digitalWrite(LED, HIGH);
+      delay(firstDelay);
+      digitalWrite(LED, LOW);
+      delay(secondDelay);
     }
 
     if (!isForever) {
