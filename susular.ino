@@ -43,8 +43,9 @@ const int SD_CHIPSELECT = 10;
 
 // Constants
 const int ENCODER_PERIOD = 16; // Number of pulses on encoder wheel
-const int WATERING_DURATION = 5UL;
-const int WAKEUP_EVERY = 10UL;
+const int WATERING_DURATION = 5UL; // seconds
+const int WAKEUP_EVERY = 10UL; // seconds
+const int ENCODER_TIMEOUT = 1; // seconds
 const char* logfile = "KAYIT.CSV"; // Valve log in TSV format
 const char* scheduleFile = "TAKVIM.CSV"; // Schedule file in TSV format
 
@@ -355,18 +356,24 @@ void disableDHT() {
 
 void getTemperature() {
   enableDHT();
-  delay(2000);
-  temperature = dht.readTemperature();
-  humidity = dht.readHumidity();
 
-  // Check if any reads failed and exit early (to try again).
+  // retry until a successful reading can occur
+  for (int i = 0; i < 4; i++) {
+    delay(1000);
+    temperature = dht.readTemperature();
+    humidity = dht.readHumidity();
+    if (isnan(humidity) || isnan(temperature)) {
+      continue;
+    }
+    break;
+  }
+  disableDHT();
+
   if (isnan(humidity) || isnan(temperature)) {
     Serial.println(F("dht: failed to read from sensor!"));
-    disableDHT();
     flashLED(4, ErrDHT);
     return;
   }
-  disableDHT();
 }
 
 void printTemperature() {
@@ -479,15 +486,20 @@ void turnMotorRight(float turns) {
 }
 
 void waitForTurn(float turns) {
-  // TODO
-  delay(1000);
-  return;
-
   int encoderPulse = 0;
-  // assume last reading was off
-  bool lastState = 1;
+  bool lastState = 1;  // assume last reading was off
+  unsigned long startTime = millis();
+  unsigned long endTime, duration;
 
   do {
+    endTime = millis();
+    duration = endTime - startTime;
+    if (duration > (ENCODER_TIMEOUT * 1000)) {
+      Serial.print(F("encoder: zaman asimi. gecen sure: "));
+      Serial.print(duration);
+      Serial.println(F(" milisaniye."));
+      return;
+    }
     bool state = digitalRead(ENCODER);
 
     if (state != lastState) {
