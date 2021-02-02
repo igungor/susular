@@ -15,12 +15,12 @@
     A5  - I2C SCL (RTC)
 
    Hata Indikatoru:
-    sd-kart hatasi: LED 2 kisa flash.
-    rtc hatasi:     LED 3 kisa flash.
-    dht hatasi:     LED 4 kisa flash.
+    sd-kart hatasi: 2 kisa flash.
+    rtc hatasi:     3 kisa flash.
+    dht hatasi:     4 kisa flash.
+    takvim hatasi:  5 kisa flash.
 */
 
-#include <SPI.h>
 #include <LowPower.h>
 #include <RTClib.h>
 #include <SdFat.h>
@@ -30,6 +30,7 @@
 #define ErrSDCard 1
 #define ErrRTC 2
 #define ErrDHT 3
+#define ErrSchedule 4
 
 // Pins
 const int ENCODER = 2;
@@ -42,9 +43,10 @@ const int SD_CHIPSELECT = 10;
 
 // Constants
 const int ENCODER_PERIOD = 16; // Number of pulses on encoder wheel
-const char * logfile = "KAYIT.CSV"; // Valve log in TSV format
 const int WATERING_DURATION = 5UL;
 const int WAKEUP_EVERY = 10UL;
+const char * logfile = "KAYIT.CSV"; // Valve log in TSV format
+const char * scheduleFile = "TAKVIM.CSV"; // Schedule file in TSV format
 
 // Valve Status
 const byte VALVE_IDLE = 0;
@@ -61,116 +63,8 @@ float humidity;
 RTC_DS3231 RTC;
 DHT dht(DHT_PIN, DHT11, 3);
 
-
-/*
-  const int dayCount = 41;
-  DateTime timeToWater[dayCount] = {
-  DateTime(2021, 5, 15, 20, 0, 0),
-  DateTime(2021, 5, 18, 20, 0, 0),
-  DateTime(2021, 5, 21, 20, 0, 0),
-  DateTime(2021, 5, 24, 20, 0, 0),
-  DateTime(2021, 5, 27, 20, 0, 0),
-  DateTime(2021, 5, 30, 20, 0, 0),
-  DateTime(2021, 6,  2, 20, 0, 0),
-  DateTime(2021, 6,  5, 20, 0, 0),
-  DateTime(2021, 6,  8, 20, 0, 0),
-  DateTime(2021, 6, 11, 20, 0, 0),
-  DateTime(2021, 6, 14, 20, 0, 0),
-  DateTime(2021, 6, 17, 20, 0, 0),
-  DateTime(2021, 6, 20, 20, 0, 0),
-  DateTime(2021, 6, 23, 20, 0, 0),
-  DateTime(2021, 6, 26, 20, 0, 0),
-  DateTime(2021, 6, 29, 20, 0, 0),
-  DateTime(2021, 7,  2, 20, 0, 0),
-  DateTime(2021, 7,  5, 20, 0, 0),
-  DateTime(2021, 7,  8, 20, 0, 0),
-  DateTime(2021, 7, 11, 20, 0, 0),
-  DateTime(2021, 7, 14, 20, 0, 0),
-  DateTime(2021, 7, 17, 20, 0, 0),
-  DateTime(2021, 7, 20, 20, 0, 0),
-  DateTime(2021, 7, 23, 20, 0, 0),
-  DateTime(2021, 7, 26, 20, 0, 0),
-  DateTime(2021, 7, 29, 20, 0, 0),
-  DateTime(2021, 8,  1, 20, 0, 0),
-  DateTime(2021, 8,  4, 20, 0, 0),
-  DateTime(2021, 8,  7, 20, 0, 0),
-  DateTime(2021, 8, 10, 20, 0, 0),
-  DateTime(2021, 8, 13, 20, 0, 0),
-  DateTime(2021, 8, 16, 20, 0, 0),
-  DateTime(2021, 8, 19, 20, 0, 0),
-  DateTime(2021, 8, 22, 20, 0, 0),
-  DateTime(2021, 8, 25, 20, 0, 0),
-  DateTime(2021, 8, 28, 20, 0, 0),
-  DateTime(2021, 8, 31, 20, 0, 0),
-  DateTime(2021, 9,  3, 20, 0, 0),
-  DateTime(2021, 9,  6, 20, 0, 0),
-  DateTime(2021, 9,  9, 20, 0, 0),
-  DateTime(2021, 9, 12, 20, 0, 0),
-  };
-*/
-const int dayCount = 60;
-DateTime schedule[dayCount] = {
-  DateTime(2021, 1, 31, 15, 0, 0),
-  DateTime(2021, 1, 31, 15, 1, 0),
-  DateTime(2021, 1, 31, 15, 2, 0),
-  DateTime(2021, 1, 31, 15, 3, 0),
-  DateTime(2021, 1, 31, 15, 4, 0),
-  DateTime(2021, 1, 31, 15, 5, 0),
-  DateTime(2021, 1, 31, 15, 6, 0),
-  DateTime(2021, 1, 31, 15, 7, 0),
-  DateTime(2021, 1, 31, 15, 8, 0),
-  DateTime(2021, 1, 31, 15, 9, 0),
-  DateTime(2021, 1, 31, 15, 10, 0),
-  DateTime(2021, 1, 31, 15, 11, 0),
-  DateTime(2021, 1, 31, 15, 12, 0),
-  DateTime(2021, 1, 31, 15, 13, 0),
-  DateTime(2021, 1, 31, 15, 14, 0),
-  DateTime(2021, 1, 31, 15, 15, 0),
-  DateTime(2021, 1, 31, 15, 16, 0),
-  DateTime(2021, 1, 31, 15, 17, 0),
-  DateTime(2021, 1, 31, 15, 18, 0),
-  DateTime(2021, 1, 31, 15, 19, 0),
-  DateTime(2021, 1, 31, 15, 20, 0),
-  DateTime(2021, 1, 31, 15, 21, 0),
-  DateTime(2021, 1, 31, 15, 22, 0),
-  DateTime(2021, 1, 31, 15, 23, 0),
-  DateTime(2021, 1, 31, 15, 24, 0),
-  DateTime(2021, 1, 31, 15, 25, 0),
-  DateTime(2021, 1, 31, 15, 26, 0),
-  DateTime(2021, 1, 31, 15, 27, 0),
-  DateTime(2021, 1, 31, 15, 28, 0),
-  DateTime(2021, 1, 31, 15, 29, 0),
-  DateTime(2021, 1, 31, 15, 30, 0),
-  DateTime(2021, 1, 31, 15, 31, 0),
-  DateTime(2021, 1, 31, 15, 32, 0),
-  DateTime(2021, 1, 31, 15, 33, 0),
-  DateTime(2021, 1, 31, 15, 34, 0),
-  DateTime(2021, 1, 31, 15, 35, 0),
-  DateTime(2021, 1, 31, 15, 36, 0),
-  DateTime(2021, 1, 31, 15, 37, 0),
-  DateTime(2021, 1, 31, 15, 38, 0),
-  DateTime(2021, 1, 31, 15, 39, 0),
-  DateTime(2021, 1, 31, 15, 40, 0),
-  DateTime(2021, 1, 31, 15, 41, 0),
-  DateTime(2021, 1, 31, 15, 42, 0),
-  DateTime(2021, 1, 31, 15, 43, 0),
-  DateTime(2021, 1, 31, 15, 44, 0),
-  DateTime(2021, 1, 31, 15, 45, 0),
-  DateTime(2021, 1, 31, 15, 46, 0),
-  DateTime(2021, 1, 31, 15, 47, 0),
-  DateTime(2021, 1, 31, 15, 48, 0),
-  DateTime(2021, 1, 31, 15, 49, 0),
-  DateTime(2021, 1, 31, 15, 50, 0),
-  DateTime(2021, 1, 31, 15, 51, 0),
-  DateTime(2021, 1, 31, 15, 52, 0),
-  DateTime(2021, 1, 31, 15, 53, 0),
-  DateTime(2021, 1, 31, 15, 54, 0),
-  DateTime(2021, 1, 31, 15, 55, 0),
-  DateTime(2021, 1, 31, 15, 56, 0),
-  DateTime(2021, 1, 31, 15, 57, 0),
-  DateTime(2021, 1, 31, 15, 58, 0),
-  DateTime(2021, 1, 31, 15, 59, 0),
-};
+const int dayCount = 41;
+DateTime schedule[dayCount];
 
 // 1 hour buffer for date comparison
 //TimeSpan dateBuffer(0, 1, 0, 0); // TODO
@@ -186,17 +80,19 @@ void setup() {
   Serial.begin(115200);
 
   stopMotor();
+  powerOnPeripherals();
 
-  // NOTE: enable to adjust RTC time for current time
+  // NOTE: enable to adjust RTC
   if (false) {
-    powerOnPeripherals();
     enableRTC();
     RTC.adjust(DateTime(F(__DATE__), F(__TIME__)));
     disableRTC();
-    powerOffPeripherals();
   }
 
+  readSchedule();
   printSummary();
+
+  powerOffPeripherals();
 }
 
 void loop() {
@@ -265,6 +161,104 @@ void printSummary() {
     }
   }
   Serial.println(F("=============="));
+}
+
+void readSchedule() {
+  powerOnPeripherals();
+
+  SdFat sd;
+  if (!sd.begin(SD_CHIPSELECT)) {
+    Serial.println(F("sd: failed to initialize"));
+    Serial.flush();
+    flashLED(2, ErrSDCard);
+    return;
+  }
+
+  SdFile file;
+  if (!file.open(scheduleFile, O_RDONLY)) {
+    Serial.println(F("sd: failed to open schedule file"));
+    Serial.flush();
+    flashLED(2, ErrSDCard);
+    return;
+  }
+
+  /*
+     Date format is like below:
+     2020-02-01 20:00:00\n
+  */
+  char line[22];
+  int idx = 0;
+  while (file.available()) {
+    int n = file.fgets(line, sizeof(line));
+    if (n <= 0) {
+      sdErrorHalt("sd: unable to read schedule.", idx, line);
+    }
+
+    if (line[n - 1] != '\n' && n == (sizeof(line) - 1)) {
+      sdErrorHalt("sd: schedule line too long.", idx, line);
+    }
+
+    DateTime date;
+    if (!parseLine(line, date)) {
+      sdErrorHalt("sd: unable to parse schedule.", idx, line);
+    }
+
+    schedule[idx] = date;
+    idx++;
+  }
+
+  file.close();
+
+  powerOffPeripherals();
+  flashLED(2, ErrSuccess);
+}
+
+void sdErrorHalt(const char* msg, uint8_t idx, char* line) {
+  Serial.print(msg);
+  Serial.print(F(" line no: "));
+  Serial.print(idx + 1);
+  Serial.print(F(". line: <"));
+  Serial.print(line);
+  Serial.println(F(">"));
+  flashLED(0, ErrSchedule);
+}
+
+bool parseLine(char* str, DateTime &date) {
+  char* ptr;
+  const char * sep = " -:";
+
+  str = strtok(str, sep);
+  if (!str) return false;
+  uint16_t year = strtoul(str, &ptr, 10);
+  if (year < 2021) return false;
+
+  str = strtok(nullptr, sep);
+  if (!str) return false;
+  uint8_t month = strtoul(str, &ptr, 10);
+  if (month > 12 || month == 0) return false;
+
+  str = strtok(nullptr, sep);
+  if (!str) return false;
+  uint8_t day = strtoul(str, &ptr, 10);
+  if (day > 31 || day == 0) return false;
+
+  str = strtok(nullptr, sep);
+  if (!str) return false;
+  uint8_t hour = strtoul(str, &ptr, 10);
+  if (hour > 24) return false;
+
+  str = strtok(nullptr, sep);
+  if (!str) return false;
+  uint8_t minute = strtoul(str, &ptr, 10);
+  if (minute > 60) return false;
+
+  str = strtok(nullptr, sep);
+  if (!str) return false;
+  uint8_t second = strtoul(str, &ptr, 10);
+  if (second > 60) return false;
+
+  date =  DateTime(year, month, day, hour, minute, second);
+  return true;
 }
 
 // shutdown all units for given seconds.
@@ -340,7 +334,7 @@ void printTime() {
 String dateTimeToString(DateTime &dt) {
   char buffer[50];
 
-  sprintf(buffer, "%d/%d/%d %02d:%02d:%02d",
+  sprintf(buffer, "%04d-%02d-%02d %02d:%02d:%02d",
           dt.year(), dt.month(), dt.day(),
           dt.hour(), dt.minute(), dt.second());
 
@@ -380,22 +374,10 @@ void printTemperature() {
 }
 
 void flashLED (byte times, byte err) {
-  unsigned int firstDelay = err == 0 ? 20 : 100;
-  unsigned int secondDelay = err == 0 ? 150 : 100;
+  uint8_t firstDelay = err == 0 ? 20 : 150;
+  uint8_t secondDelay = err == 0 ? 150 : 150;
   bool isForever = err > 0 ? true : false;
   times = err == 0 ? times : err + 1;
-
-  switch (err) {
-    case ErrSDCard:
-      times = 2;
-      break;
-    case ErrRTC:
-      times = 3;
-      break;
-    case ErrDHT:
-      times = 4;
-      break;
-  }
 
   for (;;) {
     for (int i = 0; i < times; i++) {
@@ -432,13 +414,11 @@ bool isTimeToWater() {
   return false;
 }
 
-void record(unsigned int valveStatus) {
+void record(uint8_t valveStatus) {
   powerOnPeripherals();
+  flashLED(5, ErrSuccess); // visual cue to not to poweroff or remove sdcard
 
   SdFat sd;
-
-  flashLED(5, ErrSuccess);
-
   if (!sd.begin(SD_CHIPSELECT, SPI_HALF_SPEED)) {
     Serial.println(F("sd: failed to initialize"));
     Serial.flush();
@@ -447,10 +427,8 @@ void record(unsigned int valveStatus) {
   }
 
   SdFile file;
-  SPI.begin();
-
   if (!file.open(logfile, O_CREAT | O_WRITE | O_APPEND)) {
-    Serial.println(F("sd: failed to open file"));
+    Serial.println(F("sd: failed to open log file"));
     Serial.flush();
     flashLED(2, ErrSDCard);
     return;
@@ -475,7 +453,6 @@ void record(unsigned int valveStatus) {
   file.sync();
   file.close();
   delay(100);
-  SPI.end();
   powerOffPeripherals();
 
   flashLED(2, ErrSuccess);
