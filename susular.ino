@@ -3,8 +3,8 @@
 
    Pinler:
     D2 - IR cikisi (enkoder sensoru)
-    D4 - Motor surucu girisi (M_IN1)
-    D5 - Motor surucu girisi (M_IN2)
+    D4 - Motor surucu girisi (INA1)
+    D5 - Motor surucu girisi (INA2)
     D8 - indikator LED
     D9 - cevre birimleri guc kapisi (MOSFET gate, 0 aktif)
     D10 - SD kart SS (slave select)
@@ -34,8 +34,8 @@
 
 // Pins
 const int ENCODER = 2;
-const int MOTOR_IN1 = 4;
-const int MOTOR_IN2 = 5;
+const int MOTOR_IN1 = 5;
+const int MOTOR_IN2 = 6;
 const int DHT_PIN = 7;
 const int LED = 8;
 const int POWER = 9;
@@ -45,7 +45,7 @@ const int SD_CHIPSELECT = 10;
 const int ENCODER_PERIOD = 16; // Number of pulses on encoder wheel
 const int WATERING_DURATION = 5UL; // seconds
 const int WAKEUP_EVERY = 10UL; // seconds
-const int ENCODER_TIMEOUT = 1; // seconds
+const int ENCODER_TIMEOUT = 8; // seconds
 const char* logfile = "KAYIT.CSV"; // Valve log in TSV format
 const char* scheduleFile = "TAKVIM.CSV"; // Schedule file in TSV format
 
@@ -110,26 +110,14 @@ void loop() {
   }
 
   Serial.println(F("sulama vakti! vanayi aciyorum..."));
-
-  // open the valve
-  record(VALVE_OPENING);
-  turnMotorLeft(1.5);
-  stopMotor();
-  record(VALVE_OPEN);
-
-  // keep the valve open and let the plants get some water
+  openValve(1.5);
   Serial.println(F("vana acildi. sulama bitene kadar uyuyorum..."));
   Serial.flush();
+
   sleepFor(WATERING_DURATION);
 
-  // close the valve
   Serial.println(F("sulama bitti. vanayi kapiyorum..."));
-  record(VALVE_CLOSING);
-
-  turnMotorRight(1.5);
-  stopMotor();
-
-  record(VALVE_CLOSED);
+  closeValve(1.5);
   Serial.println(F("vana kapandi. uyku vakti..."));
   Serial.flush();
 
@@ -473,16 +461,26 @@ void stopMotor() {
   digitalWrite(MOTOR_IN2, LOW);
 }
 
-void turnMotorLeft(float turns) {
+void openValve(float turns) {
+  record(VALVE_OPENING);
+
   digitalWrite(MOTOR_IN1, HIGH);
   digitalWrite(MOTOR_IN2, LOW);
   waitForTurn(turns);
+
+  stopMotor();
+  record(VALVE_OPEN);
 }
 
-void turnMotorRight(float turns) {
+void closeValve(float turns) {
+  record(VALVE_CLOSING);
+
   digitalWrite(MOTOR_IN1, LOW);
   digitalWrite(MOTOR_IN2, HIGH);
   waitForTurn(turns);
+
+  stopMotor();
+  record(VALVE_CLOSED);
 }
 
 void waitForTurn(float turns) {
