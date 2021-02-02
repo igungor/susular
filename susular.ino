@@ -45,8 +45,8 @@ const int SD_CHIPSELECT = 10;
 const int ENCODER_PERIOD = 16; // Number of pulses on encoder wheel
 const int WATERING_DURATION = 5UL;
 const int WAKEUP_EVERY = 10UL;
-const char * logfile = "KAYIT.CSV"; // Valve log in TSV format
-const char * scheduleFile = "TAKVIM.CSV"; // Schedule file in TSV format
+const char* logfile = "KAYIT.CSV"; // Valve log in TSV format
+const char* scheduleFile = "TAKVIM.CSV"; // Schedule file in TSV format
 
 // Valve Status
 const byte VALVE_IDLE = 0;
@@ -145,22 +145,19 @@ void printSummary() {
   printTemperature();
   Serial.println();
 
-  int found = 0;
+  bool found = 0;
   Serial.println(F("### Sulama takvimi ###"));
   for (int i = 0; i < dayCount; i++) {
     DateTime d = schedule[i];
     String ds = dateTimeToString(d);
-    if (now < d) {
-      if (!found) {
-        Serial.print(ds);
-        Serial.println(F("  <--- Siradaki sulama"));
-        found = 1;
-      } else {
-        Serial.println(ds);
-      }
-    } else {
-      Serial.println(ds);
+
+    Serial.print(ds);
+    if (now < d && !found) {
+      Serial.println(F("  <--- Siradaki sulama"));
+      found = true;
+      continue;
     }
+    Serial.println();
   }
   Serial.println(F("=============="));
 }
