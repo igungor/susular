@@ -15,10 +15,10 @@
     A5  - I2C SCL (RTC)
 
    Hata Indikatoru:
-    sd-kart hatasi: 2 kisa flash.
+    sd-kart hatasi: 1 kisa flash.
+    takvim hatasi:  2 kisa flash.
     rtc hatasi:     3 kisa flash.
     dht hatasi:     4 kisa flash.
-    takvim hatasi:  5 kisa flash.
 */
 
 #include <LowPower.h>
@@ -26,11 +26,10 @@
 #include <SdFat.h>
 #include <DHT.h>
 
-#define ErrSuccess 0
 #define ErrSDCard 1
-#define ErrRTC 2
-#define ErrDHT 3
-#define ErrSchedule 4
+#define ErrSchedule 2
+#define ErrRTC 3
+#define ErrDHT 4
 
 // Pins
 const int ENCODER = 2;
@@ -159,7 +158,7 @@ void readSchedule() {
   if (!sd.begin(SD_CHIPSELECT)) {
     Serial.println(F("sd: failed to initialize"));
     Serial.flush();
-    flashLED(2, ErrSDCard);
+    errorHalt(ErrSDCard);
     return;
   }
 
@@ -167,7 +166,7 @@ void readSchedule() {
   if (!file.open(scheduleFile, O_RDONLY)) {
     Serial.println(F("sd: failed to open schedule file"));
     Serial.flush();
-    flashLED(2, ErrSDCard);
+    errorHalt(ErrSDCard);
     return;
   }
 
@@ -199,7 +198,7 @@ void readSchedule() {
   file.close();
 
   powerOffPeripherals();
-  flashLED(2, ErrSuccess);
+  flashLED(2);
 }
 
 void sdErrorHalt(const char* msg, uint8_t idx, char* line) {
@@ -209,7 +208,7 @@ void sdErrorHalt(const char* msg, uint8_t idx, char* line) {
   Serial.print(F(". line: <"));
   Serial.print(line);
   Serial.println(F(">"));
-  flashLED(0, ErrSchedule);
+  errorHalt(ErrSchedule);
 }
 
 bool parseLine(char* str, DateTime &date) {
@@ -250,6 +249,13 @@ bool parseLine(char* str, DateTime &date) {
   return true;
 }
 
+void errorHalt(uint8_t err) {
+  for (;;) {
+    flashLED(err);
+    sleepFor(5);
+  }
+}
+
 // shutdown all units for given seconds.
 void sleepFor(unsigned long seconds) {
   // find the iteration count to sleep for SLEEP_8S
@@ -285,7 +291,7 @@ void enableRTC () {
   if (!RTC.begin()) {
     Serial.println(F("rtc: not initialized"));
     Serial.flush();
-    flashLED(3, ErrRTC);
+    flashLED(ErrRTC);
     return;
   }
 
@@ -295,7 +301,7 @@ void enableRTC () {
   if (RTC.lostPower()) {
     Serial.println(F("rtc: battery is empty"));
     Serial.flush();
-    flashLED(3, ErrRTC);
+    flashLED(ErrRTC);
     return;
   }
 }
@@ -365,7 +371,7 @@ void getTemperature() {
     temperature = String("NaN");
     Serial.println(F("dht: failed to read temperature!"));
     Serial.flush();
-    flashLED(0, ErrDHT);
+    flashLED(ErrDHT);
     return;
   }
 
@@ -375,7 +381,7 @@ void getTemperature() {
     humidity = String("NaN");
     Serial.println(F("dht: failed to read humidity!"));
     Serial.flush();
-    flashLED(0, ErrDHT);
+    flashLED(ErrDHT);
     return;
   }
 }
@@ -387,24 +393,14 @@ void printTemperature() {
   Serial.println(humidity);
 }
 
-void flashLED(byte times, byte err) {
-  uint8_t firstDelay = err == 0 ? 20 : 150;
-  uint8_t secondDelay = err == 0 ? 150 : 150;
-  bool isForever = err > 0 ? true : false;
-  times = err == 0 ? times : err + 1;
+void flashLED(byte times) {
+  const uint8_t flashDelay = 150;
 
-  for (;;) {
-    for (int i = 0; i < times; i++) {
-      digitalWrite(LED, HIGH);
-      delay(firstDelay);
-      digitalWrite(LED, LOW);
-      delay(secondDelay);
-    }
-
-    if (!isForever) {
-      break;
-    }
-    delay(2000);
+  for (int i = 0; i < times; i++) {
+    digitalWrite(LED, HIGH);
+    delay(flashDelay);
+    digitalWrite(LED, LOW);
+    delay(flashDelay);
   }
 }
 
@@ -430,13 +426,13 @@ bool isTimeToWater() {
 
 void record(uint8_t valveStatus) {
   powerOnPeripherals();
-  flashLED(5, ErrSuccess); // visual cue to not to poweroff or remove sdcard
+  flashLED(5); // visual cue to not to poweroff or remove sdcard
 
   SdFat sd;
   if (!sd.begin(SD_CHIPSELECT, SPI_HALF_SPEED)) {
     Serial.println(F("sd: failed to initialize"));
     Serial.flush();
-    flashLED(2, ErrSDCard);
+    flashLED(ErrSDCard);
     return;
   }
 
@@ -444,7 +440,7 @@ void record(uint8_t valveStatus) {
   if (!file.open(logfile, O_CREAT | O_WRITE | O_APPEND)) {
     Serial.println(F("sd: failed to open log file"));
     Serial.flush();
-    flashLED(2, ErrSDCard);
+    flashLED(ErrSDCard);
     return;
   }
   getTime();
@@ -469,7 +465,7 @@ void record(uint8_t valveStatus) {
   delay(100);
   powerOffPeripherals();
 
-  flashLED(2, ErrSuccess);
+  flashLED(2);
 }
 
 void stopMotor() {
