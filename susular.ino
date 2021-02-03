@@ -59,8 +59,8 @@ const byte VALVE_CLOSED = 4;
 
 // Global variables
 DateTime now;
-float temperature;
-float humidity;
+String temperature;
+String humidity;
 
 RTC_DS3231 RTC;
 DHT dht(DHT_PIN, DHT11, 3);
@@ -347,20 +347,35 @@ void getTemperature() {
   enableDHT();
 
   // retry until a successful reading can occur
+  float t, h;
   for (int i = 0; i < 4; i++) {
     delay(1000);
-    temperature = dht.readTemperature();
-    humidity = dht.readHumidity();
-    if (isnan(humidity) || isnan(temperature)) {
+    t = dht.readTemperature();
+    h = dht.readHumidity();
+    if (isnan(t) || isnan(h)) {
       continue;
     }
     break;
   }
   disableDHT();
 
-  if (isnan(humidity) || isnan(temperature)) {
-    Serial.println(F("dht: failed to read from sensor!"));
-    flashLED(4, ErrDHT);
+  if (!isnan(t)) {
+    temperature = String(t);
+  } else {
+    temperature = String("NaN");
+    Serial.println(F("dht: failed to read temperature!"));
+    Serial.flush();
+    flashLED(0, ErrDHT);
+    return;
+  }
+
+  if (!isnan(h)) {
+    humidity = String(h);
+  } else {
+    humidity = String("NaN");
+    Serial.println(F("dht: failed to read humidity!"));
+    Serial.flush();
+    flashLED(0, ErrDHT);
     return;
   }
 }
