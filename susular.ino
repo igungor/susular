@@ -46,6 +46,7 @@ const int ENCODER_PERIOD = 16; // Number of pulses on encoder wheel
 const int WATERING_DURATION = 5UL; // seconds
 const int WAKEUP_EVERY = 10UL; // seconds
 const int ENCODER_TIMEOUT = 8; // seconds
+const float VALVE_TURN_COUNT = 1.5;
 const char* logfile = "KAYIT.CSV"; // Valve log in TSV format
 const char* scheduleFile = "TAKVIM.CSV"; // Schedule file in TSV format
 
@@ -79,6 +80,8 @@ void setup() {
   pinMode(POWER, OUTPUT);
 
   Serial.begin(115200);
+  SdFile::dateTimeCallback(fileDateTime);
+
 
   stopMotor();
   powerOnPeripherals();
@@ -94,8 +97,6 @@ void setup() {
   printSummary();
 
   powerOffPeripherals();
-
-  SdFile::dateTimeCallback(fileDateTime);
 }
 
 void loop() {
@@ -110,14 +111,14 @@ void loop() {
   }
 
   Serial.println(F("sulama vakti! vanayi aciyorum..."));
-  openValve(1.5);
+  openValve();
   Serial.println(F("vana acildi. sulama bitene kadar uyuyorum..."));
   Serial.flush();
 
   sleepFor(WATERING_DURATION);
 
   Serial.println(F("sulama bitti. vanayi kapiyorum..."));
-  closeValve(1.5);
+  closeValve();
   Serial.println(F("vana kapandi. uyku vakti..."));
   Serial.flush();
 
@@ -461,23 +462,23 @@ void stopMotor() {
   digitalWrite(MOTOR_IN2, LOW);
 }
 
-void openValve(float turns) {
+void openValve() {
   record(VALVE_OPENING);
 
   digitalWrite(MOTOR_IN1, HIGH);
   digitalWrite(MOTOR_IN2, LOW);
-  waitForTurn(turns);
+  waitForTurn(VALVE_TURN_COUNT);
 
   stopMotor();
   record(VALVE_OPEN);
 }
 
-void closeValve(float turns) {
+void closeValve() {
   record(VALVE_CLOSING);
 
   digitalWrite(MOTOR_IN1, LOW);
   digitalWrite(MOTOR_IN2, HIGH);
-  waitForTurn(turns);
+  waitForTurn(VALVE_TURN_COUNT);
 
   stopMotor();
   record(VALVE_CLOSED);
