@@ -297,13 +297,6 @@ void enableRTC () {
 
   delay (2);
   TWBR = 72;  // 50 kHz at 8 MHz clock
-
-  if (RTC.lostPower()) {
-    Serial.println(F("rtc: battery is empty"));
-    Serial.flush();
-    flashLED(ErrRTC);
-    return;
-  }
 }
 
 void disableRTC () {
@@ -318,6 +311,12 @@ void disableRTC () {
 void getTime() {
   enableRTC();
   now = RTC.now();
+  if (now.year() < 2021) {
+    printTime();
+    Serial.println(F("rtc: clock is not adjusted!"));
+    Serial.flush();
+    errorHalt(ErrRTC);
+  }
   disableRTC();
 }
 
