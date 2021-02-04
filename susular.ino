@@ -81,7 +81,6 @@ void setup() {
   Serial.begin(115200);
   SdFile::dateTimeCallback(fileDateTime);
 
-
   stopMotor();
   powerOnPeripherals();
 
@@ -250,6 +249,10 @@ bool parseLine(char* str, DateTime &date) {
 }
 
 void errorHalt(uint8_t err) {
+  disableDHT();
+  disableRTC();
+  powerOffPeripherals();
+
   for (;;) {
     flashLED(err);
     sleepFor(5);
