@@ -2,11 +2,14 @@
    Vana 01.
 
    Pinler:
-    D2 - IR cikisi (enkoder sensoru)
-    D4 - Motor surucu girisi (INA1)
-    D5 - Motor surucu girisi (INA2)
+    D2 - Limit switch 1 (Vana acildi sinyali)
+    D3 - LImit switch 2 (Vana kapandi sinyali)
+    D4 - Baglanti yok
+    D5 - Motor surucu girisi (INA1)
+    D6 - Motor surucu girisi (INA2)
+    D7 - DHT11 sensor girisi
     D8 - indikator LED
-    D9 - cevre birimleri guc kapisi (MOSFET gate, 0 aktif)
+    D9 - Cevre birimleri guc kapisi (MOSFET gate, 0 aktif)
     D10 - SD kart SS (slave select)
     D11 - SD kart MOSI
     D12 - SD kart MISO
@@ -32,7 +35,8 @@
 #define ErrDHT 4
 
 // Pins
-const int ENCODER = 2;
+const int VALVE_OPEN_SW = 2;
+const int VALVE_CLOSED_SW = 3;
 const int MOTOR_IN1 = 5;
 const int MOTOR_IN2 = 6;
 const int DHT_PIN = 7;
@@ -41,11 +45,10 @@ const int POWER = 9;
 const int SD_CHIPSELECT = 10;
 
 // Constants
-const int ENCODER_PERIOD = 16; // Number of pulses on encoder wheel
 const int WATERING_DURATION = 5UL; // seconds
 const int WAKEUP_EVERY = 10UL; // seconds
-const int ENCODER_TIMEOUT = 8; // seconds
-const float VALVE_TURN_COUNT = 1.5;
+const int VALVE_TIMEOUT = 60UL; // seconds
+const float VALVE_SWITCH_HOLD_DURATION = 250; // milliseconds
 const char* logfile = "KAYIT.CSV"; // Valve log in TSV format
 const char* scheduleFile = "TAKVIM.CSV"; // Schedule file in TSV format
 
@@ -72,13 +75,15 @@ DateTime schedule[dayCount];
 TimeSpan dateBuffer(0, 0, 0, 10);
 
 void setup() {
-  pinMode(ENCODER, INPUT);
+  pinMode(VALVE_OPEN_SW, INPUT_PULLUP);
+  pinMode(VALVE_CLOSED_SW, INPUT_PULLUP);
   pinMode(MOTOR_IN1, OUTPUT);
   pinMode(MOTOR_IN2, OUTPUT);
   pinMode(LED, OUTPUT);
   pinMode(POWER, OUTPUT);
 
   Serial.begin(115200);
+
   SdFile::dateTimeCallback(fileDateTime);
 
   stopMotor();
@@ -287,6 +292,8 @@ void powerOffPeripherals() {
     digitalWrite (pin, LOW);
   }
 
+  pinMode(VALVE_OPEN_SW, INPUT_PULLUP);
+  pinMode(VALVE_CLOSED_SW, INPUT_PULLUP);
   digitalWrite (POWER, HIGH);
 }
 
@@ -480,7 +487,7 @@ void openValve() {
 
   digitalWrite(MOTOR_IN1, HIGH);
   digitalWrite(MOTOR_IN2, LOW);
-  waitForTurn(VALVE_TURN_COUNT);
+  waitForSwitch(VALVE_OPEN_SW);
 
   stopMotor();
   record(VALVE_OPEN);
@@ -491,35 +498,44 @@ void closeValve() {
 
   digitalWrite(MOTOR_IN1, LOW);
   digitalWrite(MOTOR_IN2, HIGH);
-  waitForTurn(VALVE_TURN_COUNT);
+  waitForSwitch(VALVE_CLOSED_SW);
 
   stopMotor();
   record(VALVE_CLOSED);
 }
 
-void waitForTurn(float turns) {
-  int encoderPulse = 0;
-  bool lastState = 1;  // assume last reading was off
+void waitForSwitch(int valveSwitch) {
   unsigned long startTime = millis();
   unsigned long endTime, duration;
 
-  do {
+  // pin is set to INPUT_PULLUP. expect logic high by default.
+  bool lastState = HIGH;
+  unsigned long lastDebounceTime = 0;
+
+  for (;;) {
     endTime = millis();
     duration = endTime - startTime;
-    if (duration > (ENCODER_TIMEOUT * 1000)) {
-      Serial.print(F("encoder: zaman asimi. gecen sure: "));
-      Serial.print(duration);
-      Serial.println(F(" milisaniye."));
+    if (duration > (VALVE_TIMEOUT * 1000UL)) {
+      Serial.print(F("vana: zaman asimi. gecen sure: "));
+      Serial.print(duration / 1000);
+      Serial.println(F(" saniye."));
       return;
     }
-    bool state = digitalRead(ENCODER);
+
+    bool state = digitalRead(valveSwitch);
 
     if (state != lastState) {
-      lastState = state;
-      if (state == 0) {
-        encoderPulse++;
-      }
+      lastDebounceTime = millis();
       lastState = state;
     }
-  } while (encoderPulse < (turns * ENCODER_PERIOD));
+
+    if ((millis() - lastDebounceTime) > VALVE_SWITCH_HOLD_DURATION) {
+      // expect limit switch to stay at logic low for enough time
+      if (!lastState) {
+        Serial.println(F("vana: limit switch tetiklendi"));
+        Serial.flush();
+        return;
+      }
+    }
+  }
 }
