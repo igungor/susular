@@ -504,6 +504,10 @@ void closeValve() {
   record(VALVE_CLOSED);
 }
 
+// waitForSwitch expects given switch to read logic low,
+// indicating that it's pressed in given time. There's an
+// extra debounce logic to make sure given switch is
+// definitely pressed.
 void waitForSwitch(int valveSwitch) {
   unsigned long startTime = millis();
   unsigned long endTime, duration;
