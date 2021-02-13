@@ -2,20 +2,20 @@
    Vana 01.
 
    Pinler:
-    D2 - Limit switch 1 (Vana acildi sinyali)
-    D3 - LImit switch 2 (Vana kapandi sinyali)
-    D4 - Baglanti yok
-    D5 - Motor surucu girisi (INA1)
-    D6 - Motor surucu girisi (INA2)
-    D7 - DHT11 sensor girisi
-    D8 - indikator LED
-    D9 - Cevre birimleri guc kapisi (MOSFET gate, 0 aktif)
-    D10 - SD kart SS (slave select)
-    D11 - SD kart MOSI
-    D12 - SD kart MISO
-    D13 - SD kart SCK
-    A4  - I2C SDA (RTC)
-    A5  - I2C SCL (RTC)
+    D2  - Limit switch 1 (Vana acildi sinyali)
+    D3  - LImit switch 2 (Vana kapandi sinyali)
+    D4  - Baglanti yok
+    D5  - TP6612FNG motor surucu girisi (INA1)
+    D6  - TP6612FNG motor surucu girisi (INA2)
+    D7  - DHT11 sensor girisi
+    D8  - Indikator LED
+    D9  - Cevre birimleri guc kapisi (MOSFET gate, 0 aktif)
+    D10 - MikroSD kart SS (slave select)
+    D11 - MikroSD kart MOSI
+    D12 - MikroSD kart MISO
+    D13 - MikroSD kart SCK
+    A4  - DS3231 I2C SDA
+    A5  - DS3231 I2C SCL
 
    Hata Indikatoru:
     sd-kart hatasi: 1 kisa flash.
@@ -65,7 +65,7 @@ String temperature;
 String humidity;
 
 RTC_DS3231 RTC;
-DHT dht(DHT_PIN, DHT11, 3);
+DHT dht(DHT_PIN, DHT11, 3); // TODO: 16MHz: 6, 8MHz: 3
 
 const int dayCount = 41;
 DateTime schedule[dayCount];
@@ -190,11 +190,10 @@ void readSchedule() {
       sdErrorHalt("sd: schedule line too long.", idx, line);
     }
 
-    DateTime date;
-    if (!parseLine(line, date)) {
+    DateTime date = DateTime(line);
+    if (date.year() < 2021) {
       sdErrorHalt("sd: unable to parse schedule.", idx, line);
     }
-
     schedule[idx] = date;
     idx++;
   }
@@ -213,44 +212,6 @@ void sdErrorHalt(const char* msg, uint8_t idx, char* line) {
   Serial.print(line);
   Serial.println(F(">"));
   errorHalt(ErrSchedule);
-}
-
-bool parseLine(char* str, DateTime &date) {
-  char* ptr;
-  const char * sep = " -:";
-
-  str = strtok(str, sep);
-  if (!str) return false;
-  uint16_t year = strtoul(str, &ptr, 10);
-  if (year < 2021) return false;
-
-  str = strtok(nullptr, sep);
-  if (!str) return false;
-  uint8_t month = strtoul(str, &ptr, 10);
-  if (month > 12 || month == 0) return false;
-
-  str = strtok(nullptr, sep);
-  if (!str) return false;
-  uint8_t day = strtoul(str, &ptr, 10);
-  if (day > 31 || day == 0) return false;
-
-  str = strtok(nullptr, sep);
-  if (!str) return false;
-  uint8_t hour = strtoul(str, &ptr, 10);
-  if (hour > 24) return false;
-
-  str = strtok(nullptr, sep);
-  if (!str) return false;
-  uint8_t minute = strtoul(str, &ptr, 10);
-  if (minute > 60) return false;
-
-  str = strtok(nullptr, sep);
-  if (!str) return false;
-  uint8_t second = strtoul(str, &ptr, 10);
-  if (second > 60) return false;
-
-  date =  DateTime(year, month, day, hour, minute, second);
-  return true;
 }
 
 void errorHalt(uint8_t err) {
@@ -322,6 +283,7 @@ void getTime() {
   enableRTC();
   now = RTC.now();
   if (now.year() < 2021) {
+    disableRTC();
     printTime();
     Serial.println(F("rtc: clock is not adjusted!"));
     Serial.flush();
@@ -335,14 +297,8 @@ void printTime() {
   Serial.println(dateTimeToString(now));
 }
 
-String dateTimeToString(DateTime &dt) {
-  char buffer[50];
-
-  sprintf(buffer, "%04d-%02d-%02d %02d:%02d:%02d",
-          dt.year(), dt.month(), dt.day(),
-          dt.hour(), dt.minute(), dt.second());
-
-  return String(buffer);
+String dateTimeToString(DateTime date) {
+  return date.timestamp(DateTime::TIMESTAMP_FULL);
 }
 
 void fileDateTime(uint16_t* date, uint16_t* time)  {
