@@ -2,9 +2,9 @@
    Vana 01.
 
    Pinler:
-    D2  - Limit switch 1 (Vana acildi sinyali)
-    D3  - LImit switch 2 (Vana kapandi sinyali)
-    D4  - Baglanti yok
+    D2  - DS3231 SQW alarm pini
+    D3  - Limit switch 1 (Vana acildi sinyali)
+    D4  - LImit switch 2 (Vana kapandi sinyali)
     D5  - TP6612FNG motor surucu girisi (INA1)
     D6  - TP6612FNG motor surucu girisi (INA2)
     D7  - DHT11 sensor girisi
@@ -24,6 +24,7 @@
     dht hatasi:     4 kisa flash.
 */
 
+#include <EEPROM.h>
 #include <LowPower.h>
 #include <RTClib.h>
 #include <SdFat.h>
@@ -35,8 +36,9 @@
 #define ErrDHT 4
 
 // Pins
-const int VALVE_OPEN_SW = 2;
-const int VALVE_CLOSED_SW = 3;
+const int RTC_ALARM = 2;
+const int VALVE_OPEN_SW = 3;
+const int VALVE_CLOSED_SW = 4;
 const int MOTOR_IN1 = 5;
 const int MOTOR_IN2 = 6;
 const int DHT_PIN = 7;
@@ -45,12 +47,14 @@ const int POWER = 9;
 const int SD_CHIPSELECT = 10;
 
 // Constants
-const int WATERING_DURATION = 5UL; // seconds
-const int WAKEUP_EVERY = 10UL; // seconds
+const int WATERING_DURATION = 12UL; // seconds
 const int VALVE_TIMEOUT = 60UL; // seconds
 const float VALVE_SWITCH_HOLD_DURATION = 250; // milliseconds
+
 const char* logfile = "KAYIT.CSV"; // Valve log in TSV format
 const char* scheduleFile = "TAKVIM.CSV"; // Schedule file in TSV format
+const DateTime never = DateTime();
+const int REF_VOLTAGE_ADDR = 0;
 
 // Valve Status
 const byte VALVE_IDLE = 0;
@@ -63,20 +67,20 @@ const byte VALVE_CLOSED = 4;
 DateTime now;
 String temperature;
 String humidity;
+long vcc;
+int refVoltage = 1081; // set default value for bandgap voltage
 
 RTC_DS3231 RTC;
 DHT dht(DHT_PIN, DHT11, 3); // TODO: 16MHz: 6, 8MHz: 3
 
-const int dayCount = 41;
+const int dayCount = 60;
 DateTime schedule[dayCount];
 
-// 1 hour buffer for date comparison
-//TimeSpan dateBuffer(0, 1, 0, 0); // TODO
-TimeSpan dateBuffer(0, 0, 0, 10);
 
 void setup() {
   pinMode(VALVE_OPEN_SW, INPUT_PULLUP);
   pinMode(VALVE_CLOSED_SW, INPUT_PULLUP);
+  pinMode(RTC_ALARM, INPUT_PULLUP);
   pinMode(MOTOR_IN1, OUTPUT);
   pinMode(MOTOR_IN2, OUTPUT);
   pinMode(LED, OUTPUT);
@@ -86,56 +90,112 @@ void setup() {
 
   SdFile::dateTimeCallback(fileDateTime);
 
-  stopMotor();
-  powerOnPeripherals();
+  if (false) { // NOTE: enable to save measured bandgap voltage
+    analogReference(INTERNAL);
+    analogRead(A0);
 
-  // NOTE: enable to adjust RTC
-  if (false) {
-    enableRTC();
-    RTC.adjust(DateTime(F(__DATE__), F(__TIME__)));
-    disableRTC();
+    Serial.println(F("Read AREF pin value (pin20 on pro mini):"));
+    while (!Serial.available()) {};
+
+    int bandgap = Serial.parseInt(SKIP_ALL);
+    Serial.println(bandgap, DEC);
+
+    EEPROM.put(REF_VOLTAGE_ADDR, bandgap);
+    analogReference(DEFAULT);
   }
 
-  readSchedule();
-  printSummary();
+  // use recorded bandgap voltage if any. otherwise, use a generic voltage value.
+  int eepromValue;
+  EEPROM.get(REF_VOLTAGE_ADDR, eepromValue);
+  Serial.print(F("vcc: bandgap value in EEPROM: "));
+  Serial.println(eepromValue, DEC);
+  if (eepromValue < 1000) {
+    Serial.println(F("vcc: bandgap value is too low, voltage measurement is not done!"));
+  } else {
+    refVoltage = eepromValue;
+  }
 
-  powerOffPeripherals();
+  stopMotor();
+  powerOnPeripherals();
+  enableRTC();
+
+  // setup RTC
+  RTC.disable32K();
+  RTC.clearAlarm(1);
+  RTC.clearAlarm(2);
+  RTC.writeSqwPinMode(DS3231_OFF);
+  RTC.disableAlarm(2);
+  if (false) { // NOTE: enable to adjust RTC
+    RTC.adjust(DateTime(F(__DATE__), F(__TIME__)));
+  }
+  disableRTC();
+
+  readSchedule();
+  // printSummary();
 }
 
 void loop() {
-  if (!isTimeToWater()) {
-    Serial.println(F("sulama vakti degil. uykuya geciyorum..."));
-    Serial.flush();
-    record(VALVE_IDLE);
+  Serial.print("recording...");
+  record(VALVE_IDLE);
+  Serial.println("OK");
+  delay(5000);
+  return;
 
-    // sleep for an hour until next check
-    sleepFor(WAKEUP_EVERY);
+  powerOnPeripherals();
+
+  DateTime dt = nextWateringTime();
+  if (dt == never) {
+    Serial.println(F("onumuzde sulanacak gun yok"));
+    RTC.clearAlarm(1);
+    flashLED(5);
+    sleepFor(8);
     return;
   }
 
-  Serial.println(F("sulama vakti! vanayi aciyorum..."));
+  setAlarm(dt);
+  sleepForever();
+
   openValve();
-  Serial.println(F("vana acildi. sulama bitene kadar uyuyorum..."));
-  Serial.flush();
+  readTime();
+  setAlarm(now + TimeSpan(WATERING_DURATION));
+  sleepForever();
 
-  sleepFor(WATERING_DURATION);
-
-  Serial.println(F("sulama bitti. vanayi kapiyorum..."));
   closeValve();
-  Serial.println(F("vana kapandi. uyku vakti..."));
-  Serial.flush();
-
-  sleepFor(WAKEUP_EVERY);
 }
 
+void setAlarm(DateTime date) {
+  enableRTC();
+  RTC.clearAlarm(1);
+
+  bool ok = RTC.setAlarm1(date, DS3231_A1_Date);
+  if (!ok) {
+    Serial.println(F("rtc: alarm kurulamadi: "));
+    Serial.print(dateTimeToString(date));
+    return;
+  }
+  disableRTC();
+
+  printTime();
+  Serial.print(F("rtc: bir sonraki uyanma zamani: "));
+  Serial.println(dateTimeToString(date));
+  Serial.flush();
+  delay(100);
+
+  attachInterrupt(digitalPinToInterrupt(RTC_ALARM), onAlarm, FALLING);
+}
+
+void onAlarm() {}
+
 void printSummary() {
-  powerOnPeripherals();
-  getTime();
-  getTemperature();
+  readTime();
+  readTemperature();
+  readTemperature();
+  readVcc();
 
   Serial.println(F("### Vana1 ###"));
   printTime();
   printTemperature();
+  printVcc();
   Serial.println();
 
   bool found = 0;
@@ -146,7 +206,7 @@ void printSummary() {
 
     Serial.print(ds);
     if (now < d && !found) {
-      Serial.println(F("  <--- Siradaki sulama"));
+      Serial.println(F("<--- Siradaki sulama"));
       found = true;
       continue;
     }
@@ -156,12 +216,9 @@ void printSummary() {
 }
 
 void readSchedule() {
-  powerOnPeripherals();
-
   SdFat sd;
   if (!sd.begin(SD_CHIPSELECT)) {
     Serial.println(F("sd: failed to initialize"));
-    Serial.flush();
     errorHalt(ErrSDCard);
     return;
   }
@@ -169,14 +226,12 @@ void readSchedule() {
   SdFile file;
   if (!file.open(scheduleFile, O_RDONLY)) {
     Serial.println(F("sd: failed to open schedule file"));
-    Serial.flush();
     errorHalt(ErrSDCard);
     return;
   }
 
   /*
-     Date format is like below:
-     2020-02-01 20:00:00\n
+    Date format: '2020-02-01 20:00:00\n'
   */
   char line[22];
   int idx = 0;
@@ -200,7 +255,6 @@ void readSchedule() {
 
   file.close();
 
-  powerOffPeripherals();
   flashLED(2);
 }
 
@@ -225,8 +279,21 @@ void errorHalt(uint8_t err) {
   }
 }
 
-// shutdown all units for given seconds.
+// shutdowns all MCU units.
+void sleepForever() {
+  powerOffPeripherals();
+  delay(100);
+  Serial.flush();
+
+  LowPower.powerDown(SLEEP_FOREVER, ADC_OFF, BOD_OFF);
+  detachInterrupt(digitalPinToInterrupt(RTC_ALARM));
+}
+
+// shutdowns all MCU units for given seconds.
 void sleepFor(unsigned long seconds) {
+  powerOffPeripherals();
+  Serial.flush();
+
   // find the iteration count to sleep for SLEEP_8S
   int times = seconds / 8;
 
@@ -238,30 +305,37 @@ void sleepFor(unsigned long seconds) {
   for (int i = 0; i < remainder; i++) {
     LowPower.powerDown(SLEEP_1S, ADC_OFF, BOD_OFF);
   }
+  detachInterrupt(digitalPinToInterrupt(RTC_ALARM));
 }
 
 void powerOnPeripherals() {
+  Serial.print(F("powering on..."));
   pinMode(POWER, OUTPUT);
   digitalWrite(POWER, LOW); // p-channel mosfet. low -> active.
-  delay(100); // wait a few ms for components to initialize
+  delay(1000);
+  Serial.println(F("OK"));
 }
 
 void powerOffPeripherals() {
+  Serial.print(F("powering off..."));
+
   // put all digital pins into low stats
-  for (byte pin = 0; pin < 14; pin++) {
+  for (byte pin = 6; pin < 14; pin++) {
     pinMode (pin, OUTPUT);
     digitalWrite (pin, LOW);
   }
 
   pinMode(VALVE_OPEN_SW, INPUT_PULLUP);
   pinMode(VALVE_CLOSED_SW, INPUT_PULLUP);
+  pinMode(RTC_ALARM, INPUT_PULLUP);
   digitalWrite (POWER, HIGH);
+
+  Serial.println(F("OK"));
 }
 
 void enableRTC () {
   if (!RTC.begin()) {
     Serial.println(F("rtc: not initialized"));
-    Serial.flush();
     flashLED(ErrRTC);
     return;
   }
@@ -279,14 +353,13 @@ void disableRTC () {
   digitalWrite (A5, LOW);
 }
 
-void getTime() {
+void readTime() {
   enableRTC();
   now = RTC.now();
   if (now.year() < 2021) {
     disableRTC();
     printTime();
     Serial.println(F("rtc: clock is not adjusted!"));
-    Serial.flush();
     errorHalt(ErrRTC);
   }
   disableRTC();
@@ -306,38 +379,64 @@ void fileDateTime(uint16_t* date, uint16_t* time)  {
   *time = FAT_TIME(now.hour(), now.minute(), now.second());
 }
 
+void readVcc() {
+  // REFS0 : Selects AVcc external reference
+  // MUX3 MUX2 MUX1 : Selects 1.1V (VBG)
+  ADMUX = bit (REFS0) | bit (MUX3) | bit (MUX2) | bit (MUX1);
+  ADCSRA |= bit( ADSC );  // start conversion
+  while (ADCSRA & bit (ADSC)) {} // wait for conversion to complete
+
+  vcc = ((refVoltage * 1024L) / ADC) + 5;
+  return;
+}
+
+void printVcc() {
+  Serial.print(F("vcc: "));
+  Serial.print(vcc / 1000.0f);
+  Serial.println(F("V"));
+}
+
 void enableDHT() {
   dht.begin();
+  delay(100);
 }
 
 void disableDHT() {
   digitalWrite(DHT_PIN, LOW);
 }
 
-void getTemperature() {
+void readTemperature() {
+  Serial.println(11);
   enableDHT();
+  Serial.println(22);
 
   // retry until a successful reading can occur
   float t, h;
   for (int i = 0; i < 4; i++) {
-    delay(1000);
+    delay(2000);
+    Serial.println(33);
+
     t = dht.readTemperature();
+    Serial.println(44);
     h = dht.readHumidity();
+    Serial.println(55);
+
     if (isnan(t) || isnan(h)) {
+      Serial.println("either t or h is nan");
       continue;
     }
     break;
   }
+  Serial.println(66);
   disableDHT();
+  Serial.println(77);
 
   if (!isnan(t)) {
     temperature = String(t);
   } else {
     temperature = String("NaN");
     Serial.println(F("dht: failed to read temperature!"));
-    Serial.flush();
     flashLED(ErrDHT);
-    return;
   }
 
   if (!isnan(h)) {
@@ -345,16 +444,14 @@ void getTemperature() {
   } else {
     humidity = String("NaN");
     Serial.println(F("dht: failed to read humidity!"));
-    Serial.flush();
     flashLED(ErrDHT);
-    return;
   }
 }
 
 void printTemperature() {
   Serial.print(F("sicaklik: "));
   Serial.print(temperature);
-  Serial.print(F(" *C, nem: %"));
+  Serial.print(F(" *C, nem: % "));
   Serial.println(humidity);
 }
 
@@ -369,34 +466,34 @@ void flashLED(byte times) {
   }
 }
 
-bool isTimeToWater() {
-  powerOnPeripherals();
-  getTime();
-  powerOffPeripherals();
+DateTime nextWateringTime() {
+  readTime();
 
   Serial.println(F("sulama takvimine bakiyorum..."));
   for (int i = 0; i < dayCount; i++ ) {
-    DateTime timeStart = schedule[i];
-    DateTime timeEnd = timeStart + dateBuffer;
+    DateTime t = schedule[i];
 
-    if ((now >= timeStart) && (now <= timeEnd)) {
-      Serial.print(F("sulama vakti gelmis: "));
-      Serial.println(dateTimeToString(timeStart));
-      return true;
+    if (t >= now) {
+      Serial.print(F("sonraki sulama: "));
+      Serial.println(dateTimeToString(t));
+      return t;
     }
   }
 
-  return false;
+  return never;
 }
 
 void record(uint8_t valveStatus) {
-  powerOnPeripherals();
   flashLED(5); // visual cue to not to poweroff or remove sdcard
 
+  readTime();
+  Serial.println(1);
+  readTemperature();
+  readVcc();
+
   SdFat sd;
-  if (!sd.begin(SD_CHIPSELECT, SPI_HALF_SPEED)) {
+  if (!sd.begin(SD_CHIPSELECT)) {
     Serial.println(F("sd: failed to initialize"));
-    Serial.flush();
     flashLED(ErrSDCard);
     return;
   }
@@ -404,31 +501,24 @@ void record(uint8_t valveStatus) {
   SdFile file;
   if (!file.open(logfile, O_CREAT | O_WRITE | O_APPEND)) {
     Serial.println(F("sd: failed to open log file"));
-    Serial.flush();
     flashLED(ErrSDCard);
     return;
   }
-  getTime();
-  getTemperature();
 
-  char buf[30];
-  sprintf(buf, "%04d-%02d-%02d %02d:%02d:%02d",
-          (int) now.year(), (int) now.month(), (int) now.day(),
-          (int) now.hour(), (int) now.minute(), (int) now.second());
-
-  file.print(buf);
+  file.print(dateTimeToString(now));
   file.print("\t");
   file.print(valveStatus);
   file.print("\t");
   file.print(temperature);
   file.print("\t");
   file.print(humidity);
+  file.print("\t");
+  file.print(vcc);
   file.println();
 
   file.sync();
   file.close();
   delay(100);
-  powerOffPeripherals();
 
   flashLED(2);
 }
@@ -439,6 +529,9 @@ void stopMotor() {
 }
 
 void openValve() {
+  powerOnPeripherals();
+
+  Serial.println(F("sulama vakti! vanayi aciyorum..."));
   record(VALVE_OPENING);
 
   digitalWrite(MOTOR_IN1, HIGH);
@@ -446,10 +539,16 @@ void openValve() {
   waitForSwitch(VALVE_OPEN_SW);
 
   stopMotor();
+  delay(100);
   record(VALVE_OPEN);
+
+  Serial.println(F("vana acildi"));
 }
 
 void closeValve() {
+  powerOnPeripherals();
+
+  Serial.println(F("sulama bitti. vanayi kapiyorum..."));
   record(VALVE_CLOSING);
 
   digitalWrite(MOTOR_IN1, LOW);
@@ -457,7 +556,10 @@ void closeValve() {
   waitForSwitch(VALVE_CLOSED_SW);
 
   stopMotor();
+  delay(100);
   record(VALVE_CLOSED);
+
+  Serial.println(F("vana kapandi"));
 }
 
 // waitForSwitch expects given switch to read logic low,
@@ -493,7 +595,6 @@ void waitForSwitch(int valveSwitch) {
       // expect limit switch to stay at logic low for enough time
       if (!lastState) {
         Serial.println(F("vana: limit switch tetiklendi"));
-        Serial.flush();
         return;
       }
     }
